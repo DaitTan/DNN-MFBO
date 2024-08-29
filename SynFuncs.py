@@ -249,7 +249,7 @@ class F16Model:
         trajectories = result["states"][:, 11].T.astype(np.float64)
         # print(trajectories)
         
-        return -1*np.min(trajectories)
+        return np.min(trajectories)
         
     
 
@@ -258,34 +258,6 @@ def evaluate(model, integrator, freq, x):
     
     f16_model = F16Model(static_params_map=F16_PARAM_MAP, step_size=freq, integrator=integrator, model=model)
     return f16_model.simulate(x)
-
-def evaluateFid(point):
-    results = []
-    for p in point:
-        IS:torch.tensor = p[-1]
-        input_point = np.array(p[:3], dtype=np.float64)    
-        # print(input_point)
-        # print("*****")
-        # print(IS.item())
-        # print(np.round(IS.item(), 4) == 1.0)
-        # print(IS.item().round(4) , IS.item().round(4) == 0.1)
-        
-        
-        if np.round(IS.item(), 4) == 1.0:
-            model = "morelli"
-            integrator = "rk45"
-            freq = 100
-        elif np.round(IS.item(), 4) == 0.2:
-            model = "stevens"
-            integrator = "euler"
-            freq = 35
-        else:
-            raise ValueError("IS is not 1 or .1")
-        res = evaluate(model, integrator, freq, input_point)
-        # print(res)
-        results.append(res)
-        # print("*****")
-    return np.array(results).T
     
 class Park1:
     def __init__(self, debug=False):

@@ -21,7 +21,7 @@ RUN apt-get update \
 
 
 RUN apt-get install -y git
-
+RUN pip install git+https://github.com/qthibeault/aerobenchvvpython.git
 WORKDIR /workspace
 
 RUN git clone https://github.com/DaitTan/DNN-MFBO.git
