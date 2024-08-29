@@ -45,7 +45,7 @@ def run(args):
         costs = [1,10,100]
     else:
         Nfid = 2
-        costs = [1,10]
+        costs = [2,10]
     
     Ntest = [1]*Nfid
     T = int(args.T)

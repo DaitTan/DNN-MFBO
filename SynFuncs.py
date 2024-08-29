@@ -6,10 +6,13 @@ import os
 import subprocess
 
 from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import FunctionTransformer
 
 from hdf5storage import loadmat
 from hdf5storage import savemat
 
+def f(X):
+    return X
 
 class CurrinExp:
     def __init__(self, debug=False):
@@ -388,8 +391,10 @@ class SynMfData:
         self.Xscalers = []
         self.yscalers = []
         for m in range(self.Nfid):
-            self.Xscalers.append(StandardScaler())
-            self.yscalers.append(StandardScaler())
+            # self.Xscalers.append(StandardScaler())
+            # self.yscalers.append(StandardScaler())
+            self.Xscalers.append(FunctionTransformer(f))
+            self.yscalers.append(FunctionTransformer(f))
 
         for m in range(self.Nfid):
             Nm_train = self.Ntrain_list[m]
@@ -439,7 +444,7 @@ class SynMfData:
 
             noise = np.random.uniform(0,1,size=[N,self.dim])
             support = (self.MfFn.ub - self.MfFn.lb).reshape([1,-1])
-
+            
             X = noise * support + self.MfFn.lb
             
             y = self.MfFn.query(X, m).reshape([-1,1])
