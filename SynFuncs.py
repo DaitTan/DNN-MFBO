@@ -133,22 +133,174 @@ class Branin:
         
         return f1
 
+import numpy as np
+from aerobench.run_f16_sim import run_f16_sim
+from aerobench.examples.gcas.gcas_autopilot import GcasAutopilot
 
+from time import perf_counter
+from collections import OrderedDict
+from math import pi
+
+
+# F16DataT = NDArray[np.float_]
+# F16ResultT = ExtraResult[F16DataT, list]
+
+
+F16_PARAM_MAP = OrderedDict({
+    'air_speed': {
+        'enabled': False,
+        'default': 540
+    },
+    'angle_of_attack': {
+        'enabled': False,
+        'default': np.deg2rad(2.1215)
+    },
+    'angle_of_sideslip': {
+        'enabled': False,
+        'default': 0
+    },
+    'roll': {
+        'enabled': True,
+        'default': None,
+        'range': (pi / 4) + np.array((-pi / 20, pi / 30)),
+    },
+    'pitch': {
+        'enabled': True,
+        'default': None,
+        'range': (-pi / 2) * 0.8 + np.array((0, pi / 20)),
+    },
+    'yaw': {
+        'enabled': True,
+        'default': None,
+        'range': (-pi / 4) + np.array((-pi / 8, pi / 8)),
+    },
+    'roll_rate': {
+        'enabled': False,
+        'default': 0
+    },
+    'pitch_rate': {
+        'enabled': False,
+        'default': 0
+    },
+    'yaw_rate': {
+        'enabled': False,
+        'default': 0
+    },
+    'northward_displacement': {
+        'enabled': False,
+        'default': 0
+    },
+    'eastward_displacement': {
+        'enabled': False,
+        'default': 0
+    },
+    'altitude': {
+        'enabled': False,
+        # 'default': 2338.4
+        'default': 2335
+    },
+    'engine_power_lag': {
+        'enabled': False,
+        'default': 9
+    }
+})
+
+class F16Model:
+    def __init__(self, static_params_map, step_size, model, integrator) -> None:
+        self.F16_PARAM_MAP = static_params_map
+        self.step_size = step_size
+        self.model = model
+        self.integrator = integrator
+
+    def get_static_params(self):
+        static_params = []
+        for param, config in self.F16_PARAM_MAP.items():
+            if config['enabled']:
+                static_params.append(config['range'])
+        return static_params
+
+
+    def _compute_initial_conditions(self, X):
+        conditions = []
+        index = 0
+
+        for param, config in self.F16_PARAM_MAP.items():
+            if config['enabled']:
+                conditions.append(X[index])
+                index = index + 1
+            else:
+                conditions.append(config['default'])
+
+        return conditions
+
+    def simulate(
+        self, inputs
+    ):
+        
+        init_cond = self._compute_initial_conditions(inputs)
+        
+        step = 1 / self.step_size
+        autopilot = GcasAutopilot(init_mode="roll", stdout=False, gain_str="old")
+
+        start_time = perf_counter()
+        result = run_f16_sim(init_cond, 15, autopilot, step, extended_states=True, model_str=self.model, integrator_str=self.integrator)
+        end_time = perf_counter() - start_time
+
+        trajectories = result["states"][:, 11].T.astype(np.float64)
+        # print(trajectories)
+        
+        return -1*np.min(trajectories)
+        
+    
+
+
+def evaluate(model, integrator, freq, x):
+    
+    f16_model = F16Model(static_params_map=F16_PARAM_MAP, step_size=freq, integrator=integrator, model=model)
+    return f16_model.simulate(x)
+
+def evaluateFid(point):
+    results = []
+    for p in point:
+        IS:torch.tensor = p[-1]
+        input_point = np.array(p[:3], dtype=np.float64)    
+        # print(input_point)
+        # print("*****")
+        # print(IS.item())
+        # print(np.round(IS.item(), 4) == 1.0)
+        # print(IS.item().round(4) , IS.item().round(4) == 0.1)
+        
+        
+        if np.round(IS.item(), 4) == 1.0:
+            model = "morelli"
+            integrator = "rk45"
+            freq = 100
+        elif np.round(IS.item(), 4) == 0.2:
+            model = "stevens"
+            integrator = "euler"
+            freq = 35
+        else:
+            raise ValueError("IS is not 1 or .1")
+        res = evaluate(model, integrator, freq, input_point)
+        # print(res)
+        results.append(res)
+        # print("*****")
+    return np.array(results).T
     
 class Park1:
     def __init__(self, debug=False):
-        self.dim = 4
+        self.dim = 3
         self.flevels = 2
-        self.maximum = 25.589254158606547
+        self.maximum = -np.inf
         
-        self.bounds = ((0.0,1.0), (0.0,1.0), (0.0,1.0), (0.0,1.0))
+        self.bounds = (
+        tuple((pi / 4) + np.array((-pi / 20, pi / 30))),
+        tuple((-pi / 2) * 0.8 + np.array((0, pi / 20))),
+        tuple((-pi / 4) + np.array((-pi / 8, pi / 8))))
+        
+        
         self.lb = np.array(self.bounds, ndmin=2)[:, 0]
         self.ub = np.array(self.bounds, ndmin=2)[:, 1]
-
-            
-        self.Flist = []
-        self.Flist.append(self.eval_fed_L0)
-        self.Flist.append(self.eval_fed_L1)
 
     def query(self, X, m):
 
@@ -157,36 +309,27 @@ class Park1:
         
         N = X.shape[0]
         ym = np.zeros(N)
+        
+        
         for n in range(X.shape[0]):
             xn = X[n]
-            ym[n] = self.Flist[m](xn)
-
+            
+            if m == 1:
+                ym[n] = self.eval_fed_L0(xn)
+            elif m == 0:
+                ym[n] = self.eval_fed_L1(xn)
         return ym
+    
 
     def eval_fed_L0(self, xn):
         
-        x1 = xn[0]
-        x2 = xn[1]
-        x3 = xn[2]
-        x4 = xn[3]
-        
-        hf = self.eval_fed_L1(xn)
-        
-        f = (1 + np.sin(x1) / 10) * hf - 2*x1**2 + x2**2 + x3**2 + 0.5
+        f = evaluate("morelli", "rk45", 100, xn)
         
         return f    
 
     def eval_fed_L1(self, xn):
         
-        x1 = xn[0]
-        x2 = xn[1]
-        x3 = xn[2]
-        x4 = xn[3]
-        
-        if x1 == 0:
-            x1 = 1e-12
-            
-        f = (np.sqrt(1 + (x2+x3**2)*x4/(x1**2)) - 1) * x1 / 2 + (x1 + 3*x4)*np.exp(1 + np.sin(x3))
+        f = evaluate("stevens", "euler", 35, xn)
 
         return f
     
